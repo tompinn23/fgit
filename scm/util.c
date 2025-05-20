@@ -1,7 +1,7 @@
+#define _DEFAULT_SOURCE
 #include "util.h"
 
 #include <ctype.h>
-#include <sys/endian.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <endian.h>
+#include <stdio.h>
 
 
 #include "err.h"
@@ -56,13 +58,13 @@ int xread_u64n(int fd, uint64_t *val) {
 uint32_t read_u32n(const char *buf) {
     uint32_t nval;
     memcpy(&nval, buf, sizeof(uint32_t));
-    return betoh32(nval);
+    return be32toh(nval);
 }
 
 uint64_t read_u64n(const char *buf) {
     uint64_t nval;
     memcpy(&nval, buf, sizeof(uint64_t));
-    return betoh64(nval);
+    return be64toh(nval);
 }
 
 unsigned char *hextob(const char *sha1) {
@@ -116,3 +118,122 @@ struct mapped_file *map_file(const char *fname) {
 
     return map;
 }
+
+FILE *fopenat(int dfd, const char *path, const char *mode) {
+    int flags = 0;
+    int fd = -1;
+
+    if(mode[0] == 'r') {
+        flags = O_RDONLY;
+    } else if(mode[0] == 'w') {
+        flags = O_WRONLY | O_CREAT | O_TRUNC;
+    } else if(mode[0] == 'a') {
+        flags = O_WRONLY | O_CREAT | O_APPEND;
+    }
+
+    if(strchr(mode, '+') != NULL) {
+        flags &= ~(O_WRONLY | O_RDONLY);
+        flags |= O_RDWR;
+    }
+
+    printf("dfd: %d flags: %s path: %s\n", dfd, mode, path);
+
+
+    fd = openat(dfd, path, flags);
+    if(fd < 0) {
+        char buf[1024];
+        char buf2[1024];
+        snprintf(buf2, 1024, "/proc/self/fd/%d", dfd);
+        readlink(buf2, buf, 1024);
+        fprintf(stderr, "fullpath: %s/%s", buf, path);
+        fprintf(stderr, "err: fopenat %s\n", strerror(errno));
+        return NULL;
+    }
+
+    FILE *fp = fdopen(fd, mode);
+    if(!fp) {
+        close(fd);
+    }
+
+    return fp;
+}
+
+char *areadline(FILE *fp) {
+    char *buf = NULL;
+    size_t len = 0;
+    ssize_t ret = getline(&buf, &len, fp);
+    if(buf == NULL || ret == -1) { return NULL; }
+
+    while (ret > 0 && (buf[ret - 1] == '\n' || buf[ret - 1] == '\r')) {
+        buf[--ret] = '\0';
+    }
+    return buf;
+}
+
+ssize_t readline(FILE *fp, char *buf, size_t len) {
+    if(buf == NULL || len == 0) return 0;
+    if(fp == NULL) return -1;
+
+    size_t i = 0;
+    int ch;
+
+    while(i < len - 1) {
+        ch = fgetc(fp);
+        if(ch == EOF) break;
+        if(ch == '\n') break;
+
+        buf[i++] = ch;
+    }
+
+    buf[i] = '\0';
+    if(i == 0 && ch == EOF) return -1;
+
+    return i;
+}
+
+int strsplit(char *s, char delim, int max, char **ss) {
+    char *p = s; 
+    for(int i = 0; i < max; i++) {
+        char *ret = strchr(p, delim);
+        if(ret != NULL) {
+            *ret = '\0';
+            ss[i] = p;
+            p = ret + 1;
+        } else {
+            ss[i] = p;
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
+char *trim(char *s) {
+    char *start = s;
+
+    while(isspace(*start)) start++;
+
+    size_t len = strlen(start);
+    while(len > 0 && isspace(*(start + len))) len--;
+    if(len == 0) {
+        return NULL;
+    }
+    return strndup(start, len);
+}
+
+int strtrimsplit(char *s, char delim, int max, char **ss) {
+    char *p = s; 
+    for(int i = 0; i < max; i++) {
+        char *ret = strchr(p, delim);
+        if(ret != NULL) {
+            *ret = '\0';
+            ss[i] = trim(p);
+            p = ret + 1;
+        } else {
+            ss[i] = trim(p);
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
+

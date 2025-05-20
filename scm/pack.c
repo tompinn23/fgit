@@ -140,7 +140,7 @@ struct git_pack *git_pack_open(const char *name) {
     struct git_index *gidx;
     struct mapped_file *packfile;
     char *fpath;
-    asprintf(&fpath, "%s.idx", name);
+    //asprintf(&fpath, "%s.idx", name);
     if(!fpath) {
         return NULL;
     }
@@ -152,7 +152,7 @@ struct git_pack *git_pack_open(const char *name) {
         return NULL;
     }
 
-    asprintf(&fpath, "%s.pack", name);
+    //asprintf(&fpath, "%s.pack", name);
     if(!fpath) {
         return NULL;
     }
