@@ -15,18 +15,18 @@ struct git_index *git_index_open(const char *file) {
     struct git_index *idx;
 
     if((fd = open(file, O_RDONLY)) < 0) {
-        scm_errno = SCM_ESYSTEM;
+        scm_errno = SCM_EERROR;
         return NULL;
     }
 
     char magic[4];
     if(xfullread(fd, magic, 4) < 0) {
-        scm_errno = SCM_ESYSTEM;
+        scm_errno = SCM_EERROR;
         goto fdclose;
     }
 
     if(strncmp(magic, "\377tOc", 4) != 0) {
-        scm_errno = SCM_EINVALID;
+        scm_errno = SCM_EDATA;
         goto fdclose;
     }
 
@@ -36,7 +36,7 @@ struct git_index *git_index_open(const char *file) {
     }
 
     if(!(vers == 2 || vers == 3)) {
-        scm_errno = SCM_EBADVER;
+        scm_errno = SCM_EDATA;
         goto fdclose;
     }
 
@@ -172,16 +172,16 @@ struct git_pack *git_pack_open(const char *name) {
     return pack;
 }
 
-int git_pack_object(struct git_pack *pack, unsigned char sha1[20]) {
-
+int64_t git_pack_blob(struct git_pack *pack, unsigned char sha1[20], char **out) {
+    *out = NULL;
     int64_t index = git_index_index(pack->idx, sha1);
     if(index < 0) {
-        return -1;
+        return SCM_EDATA;
     }
     uint64_t offset = git_index_offset(pack->idx, index);
 
     if(offset > pack->packfile->length) {
-        return -1;
+        return SCM_EDATA;
     }
 
     uint8_t *ptr = pack->packfile->base + offset;
@@ -193,11 +193,39 @@ int git_pack_object(struct git_pack *pack, unsigned char sha1[20]) {
         shift += 7;
     }
 
+    char *outbuf = malloc(sz);
+    if(!outbuf) {
+        return SCM_ENOMEM;
+    }
+
     z_stream strm = {0};
     if(inflateInit(&strm) != Z_OK) {
-        return -1;
+        return SCM_EERROR;
     }
 
     strm.next_in = ptr;
+    strm.avail_in = pack->packfile->length - (ptr - (uint8_t *)pack->packfile->base);
 
+    strm.next_out = outbuf;
+    strm.avail_out = sz;
+
+    int ret = inflate(&strm, Z_FINISH);
+    if(ret != Z_STREAM_END) {
+        free(outbuf);
+        return SCM_EDATA;
+    }
+
+    uint32_t crc = crc32_z(0L, ptr, strm.total_in);
+    int64_t outsize = strm.total_out;
+    inflateEnd(&strm);
+
+    uint32_t crc2 = git_index_crc32(pack->idx, index);
+
+    if(crc != crc2) {
+        free(outbuf);
+        return SCM_ECHKSUM;
+    }
+
+    *out = outbuf;
+    return outsize;
 }

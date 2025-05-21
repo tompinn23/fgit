@@ -38,7 +38,7 @@ int xfullread(int fd, char *buf, size_t amt) {
 int xread_u32n(int fd, uint32_t *val) {
     char buf[4];
     if(xfullread(fd, buf, 4) < 0) {
-        scm_errno = SCM_ESYSTEM;
+        scm_errno = SCM_EERROR;
         return -1;
     }
     *val = read_u32n(buf);
@@ -48,7 +48,7 @@ int xread_u32n(int fd, uint32_t *val) {
 int xread_u64n(int fd, uint64_t *val) {
     char buf[8];
     if(xfullread(fd, buf, 8) < 0) {
-        scm_errno = SCM_ESYSTEM;
+        scm_errno = SCM_EERROR;
         return -1;
     }
     *val = read_u64n(buf);
@@ -119,6 +119,17 @@ struct mapped_file *map_file(const char *fname) {
     return map;
 }
 
+int fdpath(int fd, char *buf, size_t bufsz) {
+    char path[4096];
+#if defined(__linux__)
+    snprintf(path, 4096, "/proc/self/fd/%d", fd);
+    return readlink(path, buf, bufsz);
+#elif defined(__OpenBSD__)
+    snprintf(path, 4096, "/dev/fd/%d", fd);
+    return readlink(path, buf, bufsz);
+#endif
+}
+
 FILE *fopenat(int dfd, const char *path, const char *mode) {
     int flags = 0;
     int fd = -1;
@@ -142,11 +153,11 @@ FILE *fopenat(int dfd, const char *path, const char *mode) {
     fd = openat(dfd, path, flags);
     if(fd < 0) {
         char buf[1024];
-        char buf2[1024];
-        snprintf(buf2, 1024, "/proc/self/fd/%d", dfd);
-        readlink(buf2, buf, 1024);
-        fprintf(stderr, "fullpath: %s/%s", buf, path);
-        fprintf(stderr, "err: fopenat %s\n", strerror(errno));
+        int err = errno;
+        if(fdpath(dfd, buf, sizeof(buf)) >= 0) {
+            fprintf(stderr, "fullpath: %s/%s\n", buf, path);
+        }
+        fprintf(stderr, "err: fopenat %s\n", strerror(err));
         return NULL;
     }
 
@@ -192,7 +203,7 @@ ssize_t readline(FILE *fp, char *buf, size_t len) {
 }
 
 int strsplit(char *s, char delim, int max, char **ss) {
-    char *p = s; 
+    char *p = s;
     for(int i = 0; i < max; i++) {
         char *ret = strchr(p, delim);
         if(ret != NULL) {
@@ -221,7 +232,7 @@ char *trim(char *s) {
 }
 
 int strtrimsplit(char *s, char delim, int max, char **ss) {
-    char *p = s; 
+    char *p = s;
     for(int i = 0; i < max; i++) {
         char *ret = strchr(p, delim);
         if(ret != NULL) {

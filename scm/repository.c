@@ -10,13 +10,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "scm/util.h"
+#include "util.h"
 
 static char *get_gitdir(const char *path) {
     char pathbuf[4096];
     struct stat st;
     snprintf(pathbuf, 4096, "%s/HEAD", path);
-    
+
     if(lstat(pathbuf, &st) == 0 && S_ISREG(st.st_mode)) {
         return strdup(path);
     }
@@ -46,7 +46,7 @@ struct git_repo *git_repo_open(const char *file) {
     if(fd < 0) {
         goto err;
     }
-    
+
     repo = malloc(sizeof(*repo));
     if(!repo) {
         goto err;
@@ -89,22 +89,42 @@ unsigned char *git_repo_head(struct git_repo *repo) {
         return NULL;
     }
 
-    char *split[2] = {0};
-    if(strtrimsplit(line, ':', 2, split) != 2) {
+    char *ref[2] = {0};
+    if(strtrimsplit(line, ':', 2, ref) != 2) {
         fclose(fp);
         return NULL;
     }
-    if(strcmp("ref", split[0]) != 0) {
+    if(strcmp("ref", ref[0]) != 0) {
         fclose(fp);
         return NULL;
     }
     fclose(fp);
 
     free(line);
-    free(split[0]);
+    free(ref[0]);
 
-    char *ret = read_sha1(repo, split[1]);
-    free(split[1]);
+    char *ret = read_sha1(repo, ref[1]);
+    if(ret != NULL) {
+        free(ref[1]);
+        return ret;
+    }
 
-    return ret;
+    fp = fopenat(repo->gitfd, "packed-refs", "r");
+    char linebuf[4096];
+    ssize_t linesz;
+    char *sha1 = NULL;
+    while((linesz = readline(fp, linebuf, sizeof(linebuf))) != -1) {
+        char *packedref[2] = {0};
+
+        if(linebuf[0] == '#') continue;
+        if(strsplit(linebuf, ' ', 2, packedref) != 2) {
+            continue;
+        }
+        if(strcmp(ref[1], packedref[1]) == 0) {
+            sha1 = strdup(packedref[0]);
+            break;
+        }
+    }
+    fclose(fp);
+    return sha1;
 }
