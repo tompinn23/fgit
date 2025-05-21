@@ -74,6 +74,32 @@ unsigned char *read_sha1(struct git_repo *repo, const char *path) {
     return ret < 0 ? NULL : buf;
 }
 
+unsigned char *git_repo_ref(struct git_repo *repo, char *ref) {
+    char *ret = read_sha1(repo, ref);
+    if(ret != NULL) {
+        return ret;
+    }
+
+    FILE *fp = fopenat(repo->gitfd, "packed-refs", "r");
+    char linebuf[4096];
+    ssize_t linesz;
+    char *sha1 = NULL;
+    while((linesz = readline(fp, linebuf, sizeof(linebuf))) != -1) {
+        char *packedref[2] = {0};
+
+        if(linebuf[0] == '#') continue;
+        if(strsplit(linebuf, ' ', 2, packedref) != 2) {
+            continue;
+        }
+        if(strcmp(ref, packedref[1]) == 0) {
+            sha1 = strdup(packedref[0]);
+            break;
+        }
+    }
+    fclose(fp);
+    return sha1;
+}
+
 unsigned char *git_repo_head(struct git_repo *repo) {
     FILE *fp = fopenat(repo->gitfd, "HEAD", "r");
     char *line = NULL;
@@ -89,6 +115,7 @@ unsigned char *git_repo_head(struct git_repo *repo) {
         return NULL;
     }
 
+    /* these are just pointers into line above */
     char *ref[2] = {0};
     if(strtrimsplit(line, ':', 2, ref) != 2) {
         fclose(fp);
@@ -100,31 +127,8 @@ unsigned char *git_repo_head(struct git_repo *repo) {
     }
     fclose(fp);
 
+    unsigned char *ret = git_repo_ref(repo, ref[1]);
+
     free(line);
-    free(ref[0]);
-
-    char *ret = read_sha1(repo, ref[1]);
-    if(ret != NULL) {
-        free(ref[1]);
-        return ret;
-    }
-
-    fp = fopenat(repo->gitfd, "packed-refs", "r");
-    char linebuf[4096];
-    ssize_t linesz;
-    char *sha1 = NULL;
-    while((linesz = readline(fp, linebuf, sizeof(linebuf))) != -1) {
-        char *packedref[2] = {0};
-
-        if(linebuf[0] == '#') continue;
-        if(strsplit(linebuf, ' ', 2, packedref) != 2) {
-            continue;
-        }
-        if(strcmp(ref[1], packedref[1]) == 0) {
-            sha1 = strdup(packedref[0]);
-            break;
-        }
-    }
-    fclose(fp);
-    return sha1;
+    return ret;
 }

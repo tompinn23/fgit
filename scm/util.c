@@ -231,7 +231,31 @@ char *trim(char *s) {
     return strndup(start, len);
 }
 
+char *dtrim(char *s) {
+    while(isspace(*s)) s++;
+    size_t len = strlen(s);
+    while(len > 0 && isspace(*(s + len))) s[len--] = '\0';
+    return s;
+}
+
+
 int strtrimsplit(char *s, char delim, int max, char **ss) {
+    char *p = s;
+    for(int i = 0; i < max; i++) {
+        char *ret = strchr(p, delim);
+        if(ret != NULL) {
+            *ret = '\0';
+            ss[i] = dtrim(p);
+            p = ret + 1;
+        } else {
+            ss[i] = dtrim(p);
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
+int strtrimsplita(char *s, char delim, int max, char **ss) {
     char *p = s;
     for(int i = 0; i < max; i++) {
         char *ret = strchr(p, delim);
