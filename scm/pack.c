@@ -11,10 +11,14 @@
 #include "err.h"
 
 struct git_index *git_index_open(const char *file) {
+    return git_index_openat(AT_FDCWD, file);
+}
+
+struct git_index *git_index_openat(int fd, const char *file) {
     int fd;
     struct git_index *idx;
 
-    if((fd = open(file, O_RDONLY)) < 0) {
+    if((fd = openat(fd, file, O_RDONLY)) < 0) {
         scm_errno = SCM_EERROR;
         return NULL;
     }
@@ -136,7 +140,7 @@ uint32_t git_index_crc32(struct git_index *idx, uint32_t index) {
     return idx->crc32[index];
 }
 
-struct git_pack *git_pack_open(const char *name) {
+struct git_pack *git_pack_openat(int dfd, const char *name) {
     struct git_index *gidx;
     struct mapped_file *packfile;
     char *fpath;
@@ -172,18 +176,11 @@ struct git_pack *git_pack_open(const char *name) {
     return pack;
 }
 
-int64_t git_pack_blob(struct git_pack *pack, unsigned char sha1[20], char **out) {
-    *out = NULL;
-    int64_t index = git_index_index(pack->idx, sha1);
-    if(index < 0) {
-        return SCM_EDATA;
-    }
-    uint64_t offset = git_index_offset(pack->idx, index);
+struct git_pack *git_pack_open(const char *name) {
+    return git_pack_openat(AT_FDCWD, name);
+}
 
-    if(offset > pack->packfile->length) {
-        return SCM_EDATA;
-    }
-
+int64_t git_pack_blobx(struct git_pack *pack, uint64_t offset, int docheck, uint32_t crc, int *type, char **out) {
     uint8_t *ptr = pack->packfile->base + offset;
     int type = (*ptr++ >> 4) & 0x07;
     size_t sz = *ptr & 0x0f;
@@ -215,11 +212,9 @@ int64_t git_pack_blob(struct git_pack *pack, unsigned char sha1[20], char **out)
         return SCM_EDATA;
     }
 
-    uint32_t crc = crc32_z(0L, ptr, strm.total_in);
+    uint32_t crc2 = crc32_z(0L, ptr, strm.total_in);
     int64_t outsize = strm.total_out;
     inflateEnd(&strm);
-
-    uint32_t crc2 = git_index_crc32(pack->idx, index);
 
     if(crc != crc2) {
         free(outbuf);
@@ -229,3 +224,21 @@ int64_t git_pack_blob(struct git_pack *pack, unsigned char sha1[20], char **out)
     *out = outbuf;
     return outsize;
 }
+
+int64_t git_pack_blob(struct git_pack *pack, const unsigned char sha1[20], int *type, char **out) {
+    *out = NULL;
+    int64_t index = git_index_index(pack->idx, sha1);
+    if(index < 0) {
+        return SCM_EDATA;
+    }
+    uint64_t offset = git_index_offset(pack->idx, index);
+
+    if(offset > pack->packfile->length) {
+        return SCM_EDATA;
+    }
+
+    uint32_t crc = git_index_crc32(pack->idx, index);
+    return git_pack_blobx(pack, offset, 1, crc, type, out);
+}
+
+

@@ -23,7 +23,7 @@ unsigned char *hextob(const char *sha1);
 struct mapped_file *map_file(const char *fname);
 FILE *fopenat(int dfd, const char *path, const char *mode);
 
-char *areadline(FILE *fp);
+char *readlinea(FILE *fp);
 ssize_t readline(FILE *fp, char *buf, size_t len);
 
 /** This destructively modifies the original input buffer by inserting nulls */

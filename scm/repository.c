@@ -9,8 +9,16 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "util.h"
+
+#define OBJ_COMMIT (1)
+#define OBJ_TREE (2)
+#define OBJ_BLOB (3)
+#define OBJ_TAG (4)
+#define OBJ_OFS_DELTA (6)
+#define OBJ_REF_DELTA (7)
 
 static char *get_gitdir(const char *path) {
     char pathbuf[4096];
@@ -47,19 +55,59 @@ struct git_repo *git_repo_open(const char *file) {
         goto err;
     }
 
-    repo = malloc(sizeof(*repo));
+    repo = calloc(1, sizeof(*repo));
     if(!repo) {
         goto err;
     }
     repo->gitfd = fd;
     repo->path = path;
+    
+    fd = openat(repo->gitfd, "objects/pack", O_DIRECTORY | O_NOFOLLOW);
+    if(fd < 0) {
+        goto err2;
+    }
 
+    DIR *dp = fdopendir(fd);
+    struct dirent *ent;
+    if(dp) {
+        while((ent = readdir(dp)) != NULL) {
+            char *end = strrchr(ent->d_name, '.');
+            char buff[4096];
+            if(!strncmp("pack-", ent->d_name, 5) && end != NULL && !strcmp(end + 1, "idx")) {
+                snprintf(buff, 4096, "objects/pack/%.*s", (end - ent->d_name), ent->d_name);
+                struct git_pack *pk = git_pack_openat(repo->gitfd, buff);
+                if(pk != NULL) {
+                    void *nw = realloc(repo->packs, repo->npacks + 1);
+                    if(!nw) {
+                        goto err2;
+                    }
+                    repo->packs = nw;
+                    repo->npacks++;
+                    repo->packs[repo->npacks - 1] = pk;
+                }
+            }
+        }
+    }
+    closedir(dp);
     return repo;
+err2:
+    git_repo_close(repo);
+    return NULL;
 err:
-    if(fd > 0) {
+    if(fd >= 0) {
         close(fd);
     }
+    free(path);
     return NULL;
+}
+
+void git_repo_close(struct git_repo *repo) {
+    if(repo->gitfd >= 0) close(repo->gitfd);
+    for(int i = 0; i < repo->npacks; i++) {
+        git_pack_close(repo->packs[i]);
+    }
+    free(repo->path);
+    free(repo);
 }
 
 unsigned char *read_sha1(struct git_repo *repo, const char *path) {
@@ -109,7 +157,7 @@ unsigned char *git_repo_head(struct git_repo *repo) {
         return NULL;
     }
 
-    line = areadline(fp);
+    line = readlinea(fp);
     if(line == NULL) {
         fclose(fp);
         return NULL;
@@ -131,4 +179,38 @@ unsigned char *git_repo_head(struct git_repo *repo) {
 
     free(line);
     return ret;
+}
+
+#define DELTA_MAX_SIZE 64
+
+struct obj {
+    int type;
+    uint8_t *data;
+    size_t len;
+};
+
+
+int git_repo_objdelta(struct git_repo *repo, int type, char *initialbuf, size_t initialsz, char **buf, size_t *bufsz) {
+    struct obj stack[DELTA_MAX_SIZE];
+    int i = 0;
+    while(i < DELTA_MAX_SIZE) {
+
+    }
+}
+
+int git_repo_object(struct git_repo *repo, unsigned char sha1[20], char **buf, size_t *bufsz) {
+    int64_t rc;
+    int type;
+    char buff;
+    size_t buffsz;
+    for(int i = 0; i < repo->npacks; i++) {
+        rc = git_pack_blob(repo->packs[i], sha1, &type, &buff);
+        if(rc > 0) {
+            break;
+        }
+        buffsz = rc;
+    }
+    if(type == OBJ_OFS_DELTA || type == OBJ_REF_DELTA) {
+        git_repo_objdelta(repo, type, buff, buffsz, &buf, &bufsz);
+    }
 }

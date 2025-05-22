@@ -20,8 +20,14 @@ struct git_pack {
 };
 
 struct git_index *git_index_open(const char *file);
+struct git_index *git_index_openat(int dfd, const char *file);
+
 int64_t git_index_index(struct git_index *idx, const unsigned char sha1[20]);
 uint64_t git_index_offset(struct git_index *idx, uint32_t index);
 uint32_t git_index_crc32(struct git_index *idx, uint32_t index);
 
 struct git_pack *git_pack_open(const char *name);
+struct git_pack *git_pack_openat(int dfd, const char *name);
+
+int64_t git_pack_blobx(struct git_pack *pack, uint64_t offset, int docheck, uint32_t crc, int *type, char **out);
+int64_t git_pack_blob(struct git_pack *pack, const unsigned char sha1[20], int *type, char **out);

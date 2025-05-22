@@ -89,11 +89,15 @@ unsigned char *hextob(const char *sha1) {
 }
 
 struct mapped_file *map_file(const char *fname) {
+    return map_fileat(AT_FDCWD, fname);
+}
+
+struct mapped_file *map_fileat(int dfd ,const char *fname) {
     int fd;
     struct mapped_file *map;
     struct stat st;
 
-    fd = open(fname, O_RDONLY);
+    fd = openat(dfd, fname, O_RDONLY);
     if(fd < 0) {
         return NULL;
     }
@@ -169,7 +173,7 @@ FILE *fopenat(int dfd, const char *path, const char *mode) {
     return fp;
 }
 
-char *areadline(FILE *fp) {
+char *readlinea(FILE *fp) {
     char *buf = NULL;
     size_t len = 0;
     ssize_t ret = getline(&buf, &len, fp);
